@@ -21,24 +21,6 @@ use Kentoka\BookInfoScraper\Information\Author;
 class OpenBDAuthor extends Author{
 
     /**
-     * OpenBDでは使われていない役割もあると思われるが、念のために全部載せておく
-     */
-    public const ROLE_LIST  = [
-        "A01" => "著",
-        "A03" => "脚本",
-        "A06" => "作曲",
-        "B01" => "編集",
-        "B20" => "監修",
-        "B06" => "翻訳",
-        "A12" => "イラスト",
-        "A38" => "原著",
-        "A10" => "企画・原案",
-        "A08" => "写真",
-        "A21" => "解説",
-        "E07" => "朗読",
-    ];
-
-    /**
      * Constructor.
      *
      * @param string        $name
@@ -51,18 +33,14 @@ class OpenBDAuthor extends Author{
             $roleList   = array_filter(
                 array_map(
                     function($v){
-                        if(is_string($v) && isset(OpenBDAuthor::ROLE_LIST[$v])){
-                            return OpenBDAuthor::ROLE_LIST[$v];
-                        }
-
-                        return null;
+                        return (is_string($v) && "" !== $v) ? $v : null;
                     },
                     $roles
                 ),
                 "is_string"
             );
 
-            if(!empty($role)){
+            if(!empty($roleList)){
                 $this->setRoles($roleList);
             }
         }
