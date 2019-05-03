@@ -193,7 +193,7 @@ class OpenBDScraper extends AbstractIsbnScraper{
         // Cover Image Uri
         foreach($book->get("CollateralDetail.SupportingResource") ?? [] as $resource){
             if("01" === $resource["ResourceContentType"]){
-                foreach($resource["ResourceContentType"]["ResourceVersion"] ?? [] as $version){
+                foreach($resource["ResourceVersion"] ?? [] as $version){
                     $book->setCoverUri($version["ResourceLink"]);
 
                     break 2;
