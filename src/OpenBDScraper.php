@@ -229,18 +229,18 @@ class OpenBDScraper extends AbstractIsbnScraper{
         $book->setPublisher($book->get("PublishingDetail.Imprint.ImprintName"));
 
         // Published Date
-        $publishedDate      = null;
+        $publishedAt      = null;
 
         foreach($book->get("PublishingDetail.PublishingDate") ?? [] as $publishedDate){
             if(
-                "" === $publishedDate["date"]
+                "" === $publishedDate["Date"]
                 || !in_array($publishedDate["PublishingDateRole"], ["01", "11"])
-                || 8 !== strlen($publishedDate["date"])
+                || 8 !== strlen($publishedDate["Date"])
             ){
                 continue;
             }
 
-            $publishedDate  = $publishedDate["PublishingDateRole"];
+            $publishedAt    = $publishedDate["Date"];
 
             if("11" === $publishedDate["PublishingDateRole"]){
                 break;
@@ -248,7 +248,7 @@ class OpenBDScraper extends AbstractIsbnScraper{
         }
 
         try{
-            $book->setPublishedAt(new \DateTime($publishedDate));
+            $book->setPublishedAt(new \DateTime($publishedAt));
         }catch(\Exception $e){
             throw new \LogicException($e->getMessage(), $e->getCode(), $e);
         }
