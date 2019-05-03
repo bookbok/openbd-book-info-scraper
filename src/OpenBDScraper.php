@@ -179,7 +179,7 @@ class OpenBDScraper extends AbstractIsbnScraper{
 
         $book   = new OpenBDBook($data);
 
-        $book->setSubTitle($book->get("DescriptiveDetail.TitleElement.Subtitle.content"));
+        $book->setSubTitle($book->get("DescriptiveDetail.TitleDetail.TitleElement.Subtitle.content"));
 
         // Description
         foreach($book->get("CollateralDetail.TextContent") ?? [] as $description){

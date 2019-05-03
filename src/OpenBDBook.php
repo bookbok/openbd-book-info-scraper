@@ -39,7 +39,7 @@ class OpenBDBook extends Book{
 
         parent::__construct(
             $this->get("RecordReference"),
-            $this->get("DescriptiveDetail.TitleElement.TitleText.content")
+            $this->get("DescriptiveDetail.TitleDetail.TitleElement.TitleText.content")
         );
     }
 
