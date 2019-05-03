@@ -11,7 +11,7 @@
  * @license     MIT
  * @since       1.0.0
  */
-namespace Kentoka\BookScraper\OpenBD;
+namespace Kentoka\BookInfoScraper\OpenBD;
 
 use Kentoka\BookInfoScraper\Information\Author;
 
