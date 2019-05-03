@@ -173,7 +173,7 @@ class OpenBDScraper extends AbstractIsbnScraper{
     }
 
     protected function generateBook(array $data): ?BookInterface{
-        if("00" !== $data["DescriptiveDetail"]["ProductComposition"] ?? null){
+        if("00" !== $data["onix"]["DescriptiveDetail"]["ProductComposition"] ?? null){
             return null;
         }
 
