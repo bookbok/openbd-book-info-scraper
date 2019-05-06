@@ -247,10 +247,12 @@ class OpenBDScraper extends AbstractIsbnScraper{
             }
         }
 
-        try{
-            $book->setPublishedAt(new \DateTime($publishedAt));
-        }catch(\Exception $e){
-            throw new \LogicException($e->getMessage(), $e->getCode(), $e);
+        if(null !== $publishedAt){
+            try{
+                $book->setPublishedAt(new \DateTime($publishedAt));
+            }catch(\Exception $e){
+                throw new \LogicException($e->getMessage(), $e->getCode(), $e);
+            }
         }
 
         // Price
