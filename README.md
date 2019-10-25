@@ -1,3 +1,4 @@
-# kentoka/openbd-book-info-scraper
+# bookbok/openbd-book-info-scraper
 
-kentoka/openbd-book-info-scraperは[OpenBD API](https://openbd.jp/)を簡単に使用できるようにするためのPHPライブラリです。
+bookbok/openbd-book-info-scraperは[OpenBD API](https://openbd.jp/)を
+簡単に使用できるようにするためのPHPライブラリです。
