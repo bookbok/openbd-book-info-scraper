@@ -1,4 +1,5 @@
 <?php
+
 /**
  * bookbok/openbd-book-info-scraper
  *
@@ -10,6 +11,7 @@
  * @license MIT
  * @since 1.0.0
  */
+
 namespace BookBok\BookInfoScraper\OpenBD;
 
 use BookBok\BookInfoScraper\AbstractIsbnScraper;
@@ -22,9 +24,9 @@ use Psr\Http\Message\RequestFactoryInterface;
 /**
  *
  */
-class OpenBDScraper extends AbstractIsbnScraper{
-
-    private const AUTHOR_ROLE_LIST  = [
+class OpenBDScraper extends AbstractIsbnScraper
+{
+    private const AUTHOR_ROLE_LIST = [
         "A01" => "著",
         "A03" => "脚本",
         "A06" => "作曲",
@@ -39,12 +41,12 @@ class OpenBDScraper extends AbstractIsbnScraper{
         "E07" => "朗読",
     ];
 
-    private const API_URI    = "https://api.openbd.jp/v1/get";
+    private const API_URI = "https://api.openbd.jp/v1/get";
 
     /**
      * @var ClientInterface
      */
-    private $client;
+    private $httpClient;
 
     /**
      * @var RequestFactoryInterface
@@ -59,53 +61,56 @@ class OpenBDScraper extends AbstractIsbnScraper{
     /**
      * Constructor.
      *
-     * @param ClientInterface         $client
-     * @param RequestFactoryInterface $requestFactory
+     * @param ClientInterface         $httpClient The http request client
+     * @param RequestFactoryInterface $requestFactory The request factory
      */
     public function __construct(
-        ClientInterface $client,
+        ClientInterface $httpClient,
         RequestFactoryInterface $requestFactory
-    ){
-        $this->client           = $client;
-        $this->requestFactory   = $requestFactory;
+    ) {
+        $this->httpClient = $httpClient;
+        $this->requestFactory = $requestFactory;
     }
 
     /**
-     * 著者役割文字列を取得する
+     * 著者役割を返す。
      *
-     * @param string $code
+     * @param string $code 著者役割コード
      *
      * @return string|null
      */
-    public function getAuthorRoleText(string $code): ?string{
+    public function getAuthorRoleText(string $code): ?string
+    {
         return $this->authorRoleList[$code] ?? null;
     }
 
     /**
-     * 著者役割文字列を設定する
+     * 著者役割を設定する。
      *
-     * @param string $code
-     * @param string $text
+     * @param string $code 著者役割コード
+     * @param string $text 著者役割
      *
      * @return $this
      */
-    public function setAuthorRoleText(string $code, string $text): self{
-        if("" === $text){
+    public function setAuthorRoleText(string $code, string $text): self
+    {
+        if ("" === $text) {
             throw new \InvalidArgumentException();
         }
 
-        $this->authorRoleList[$code]    = $text;
+        $this->authorRoleList[$code] = $text;
 
         return $this;
     }
 
     /**
-     * 著者役割文字列を規定値にリセットする
+     * 著者役割をデフォルト値にリセットする。
      *
      * @return $this
      */
-    public function resetAuthorRoleText(): self{
-        $this->authorRoleList   = self::AUTHOR_ROLE_LIST;
+    public function resetAuthorRoleText(): self
+    {
+        $this->authorRoleList = self::AUTHOR_ROLE_LIST;
 
         return $this;
     }
@@ -113,34 +118,31 @@ class OpenBDScraper extends AbstractIsbnScraper{
     /**
      * {@inheritdoc}
      */
-    public function scrape(string $id): ?BookInterface{
-        try{
-            $response   = $this->client->sendRequest(
+    public function scrape(string $id): ?BookInterface
+    {
+        try {
+            $response = $this->httpClient->sendRequest(
                 $this->requestFactory->createRequest("GET", $this->getApiUri($id))
             );
-        }catch(ClientExceptionInterface $e){
-            throw new DataProviderException(
-                $e->getMessage(),
-                $e->getCode(),
-                $e
-            );
+        } catch (ClientExceptionInterface $e) {
+            throw new DataProviderException($e->getMessage(), $e->getCode(), $e);
         }
 
-        if(200 !== $response->getStatusCode()){
+        if (200 !== $response->getStatusCode()) {
             return null;
         }
 
-        if(null === ($json = $this->normalizeJsonText($response->getBody()->getContents()))){
+        if (null === ($json = $this->normalizeJsonText($response->getBody()->getContents()))) {
             return null;
         }
 
-        $data   = json_decode($json, true);
+        $data = json_decode($json, true);
 
-        if(JSON_ERROR_NONE !== json_last_error()){
+        if (JSON_ERROR_NONE !== json_last_error()) {
             throw new DataProviderException(json_last_error_msg());
         }
 
-        if(!isset($data[0])){
+        if (!isset($data[0])) {
             return null;
         }
 
@@ -148,71 +150,77 @@ class OpenBDScraper extends AbstractIsbnScraper{
     }
 
     /**
-     * Get OpenBD API uri.
+     * OpenBDのエンドポイントURLを返す。
      *
-     * @param   string  $isbn
+     * @param string $isbn リクエストするISBN文字列。
      *
-     * @return  string
+     * @return string
      */
-    protected function getApiUri(string $isbn): string{
+    protected function getApiUri(string $isbn): string
+    {
         return static::API_URI . "?isbn={$isbn}";
     }
 
     /**
-     * Return normalized json text.
+     * APIのレスポンスjsonを正規化する。
      *
-     * OpenBD return invalid json text.
+     * OpenBDは異常なjsonデータを返すことがあるので、それを処理する。
      *
-     * @param   string  $json
+     * @param string $json レスポンスデータ
      *
-     * @return  string|null
+     * @return string|null
      */
-    protected function normalizeJsonText(string $json): ?string{
+    protected function normalizeJsonText(string $json): ?string
+    {
         return preg_replace("/[[:cntrl:]]/", "", $json);
     }
 
-    protected function generateBook(array $data): ?BookInterface{
-        if("00" !== $data["onix"]["DescriptiveDetail"]["ProductComposition"] ?? null){
+    /**
+     * 本情報を生成する。
+     *
+     * @param mixed[] $data パースされたレスポンスデータ
+     *
+     * @return BookInterface|null
+     */
+    protected function generateBook(array $data): ?BookInterface
+    {
+        if ("00" !== $data["onix"]["DescriptiveDetail"]["ProductComposition"] ?? null) {
             return null;
         }
 
-        $book   = new OpenBDBook($data);
+        $book = new OpenBDBook($data);
 
         $book->setSubTitle($book->get("DescriptiveDetail.TitleDetail.TitleElement.Subtitle.content"));
 
         // Description
-        foreach($book->get("CollateralDetail.TextContent") ?? [] as $description){
-            if("03" === $description["TextType"]){
+        foreach ($book->get("CollateralDetail.TextContent") ?? [] as $description) {
+            if ("03" === $description["TextType"]) {
                 $book->setDescription($description["Text"]);
-
                 break;
             }
         }
 
         // Cover Image Uri
-        foreach($book->get("CollateralDetail.SupportingResource") ?? [] as $resource){
-            if("01" === $resource["ResourceContentType"]){
-                foreach($resource["ResourceVersion"] ?? [] as $version){
+        foreach ($book->get("CollateralDetail.SupportingResource") ?? [] as $resource) {
+            if ("01" === $resource["ResourceContentType"]) {
+                foreach ($resource["ResourceVersion"] ?? [] as $version) {
                     $book->setCoverUri($version["ResourceLink"]);
-
                     break 2;
                 }
             }
         }
 
         // Page Count
-        foreach($book->get("DescriptiveDetail.Extent") ?? [] as $extent){
-            if("11" === $extent["ExtentType"]){
+        foreach ($book->get("DescriptiveDetail.Extent") ?? [] as $extent) {
+            if ("11" === $extent["ExtentType"]) {
                 $book->setPageCount((int)$extent["ExtentValue"]);
-
                 break;
             }
         }
 
         // Author
-        $authors    = [];
-
-        foreach($book->get("DescriptiveDetail.Contributor") ?? [] as $author){
+        $authors = [];
+        foreach ($book->get("DescriptiveDetail.Contributor") ?? [] as $author) {
             $authors[]  = new OpenBDAuthor(
                 $author["PersonName"]["content"],
                 array_filter(
@@ -228,35 +236,35 @@ class OpenBDScraper extends AbstractIsbnScraper{
         $book->setPublisher($book->get("PublishingDetail.Imprint.ImprintName"));
 
         // Published Date
-        $publishedAt      = null;
+        $publishedAt = null;
 
-        foreach($book->get("PublishingDetail.PublishingDate") ?? [] as $publishedDate){
-            if(
+        foreach ($book->get("PublishingDetail.PublishingDate") ?? [] as $publishedDate) {
+            if (
                 "" === $publishedDate["Date"]
                 || !in_array($publishedDate["PublishingDateRole"], ["01", "11"])
                 || 8 !== strlen($publishedDate["Date"])
-            ){
+            ) {
                 continue;
             }
 
-            $publishedAt    = $publishedDate["Date"];
+            $publishedAt = $publishedDate["Date"];
 
-            if("11" === $publishedDate["PublishingDateRole"]){
+            if ("11" === $publishedDate["PublishingDateRole"]) {
                 break;
             }
         }
 
-        if(null !== $publishedAt){
-            try{
+        if (null !== $publishedAt) {
+            try {
                 $book->setPublishedAt(new \DateTime($publishedAt));
-            }catch(\Exception $e){
+            } catch (\Exception $e) {
                 throw new \LogicException($e->getMessage(), $e->getCode(), $e);
             }
         }
 
         // Price
-        foreach($book->get("ProductSupply.SupplyDetail.Price") ?? [] as $price){
-            if(!in_array($price["PriceType"], ["01", "03"])){
+        foreach ($book->get("ProductSupply.SupplyDetail.Price") ?? [] as $price) {
+            if (!in_array($price["PriceType"], ["01", "03"])) {
                 continue;
             }
 

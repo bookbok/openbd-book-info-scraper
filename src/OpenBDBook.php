@@ -1,4 +1,5 @@
 <?php
+
 /**
  * bookbok/openbd-book-info-scraper
  *
@@ -10,6 +11,7 @@
  * @license MIT
  * @since 1.0.0
  */
+
 namespace BookBok\BookInfoScraper\OpenBD;
 
 use BookBok\BookInfoScraper\Information\Book;
@@ -17,11 +19,11 @@ use BookBok\BookInfoScraper\Information\Book;
 /**
  *
  */
-class OpenBDBook extends Book{
-
-    public const ONIX       = "onix";
-    public const HANMOTO    = "hanmoto";
-    public const SUMMARY    = "summary";
+class OpenBDBook extends Book
+{
+    public const ONIX = "onix";
+    public const HANMOTO = "hanmoto";
+    public const SUMMARY = "summary";
 
     /**
      * @var mixed[]
@@ -31,9 +33,10 @@ class OpenBDBook extends Book{
     /**
      * Constructor.
      *
-     * @param   mixed[] $data
+     * @param mixed[] $data レスポンスデータ
      */
-    public function __construct(array $data){
+    public function __construct(array $data)
+    {
         $this->data = $data;
 
         parent::__construct(
@@ -43,25 +46,26 @@ class OpenBDBook extends Book{
     }
 
     /**
-     * Get raw data.
+     * APIからのレスポンスデータを取得する。
      *
-     * @param string $accessKey
-     * @param string $source
+     * @param string $accessKey レスポンスデータネームスペース以下のキー
+     * @param string $source レスポンスデータのネームスペース
      *
      * @return mixed|null
      */
-    public function get(string $accessKey, string $source = self::ONIX){
-        $data   = $this->data[$source] ?? null;
+    public function get(string $accessKey, string $source = self::ONIX)
+    {
+        $data = $this->data[$source] ?? null;
 
-        foreach(explode(".", $accessKey) as $key){
-            if(!is_array($data) || !isset($data[$key])){
+        foreach (explode(".", $accessKey) as $key) {
+            if (!is_array($data) || !isset($data[$key])) {
                 return null;
             }
 
-            $data   = $data[$key];
+            $data = $data[$key];
         }
 
-        if("" === $data){
+        if ("" === $data) {
             return null;
         }
 
