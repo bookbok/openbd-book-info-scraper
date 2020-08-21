@@ -14,6 +14,7 @@
 
 namespace BookBok\BookInfoScraper\OpenBD;
 
+use BookBok\BookInfoScraper\OpenBD\ApiData\ONIX;
 use BookBok\BookInfoScraper\ScraperInterface;
 use BookBok\BookInfoScraper\Exception\DataProviderException;
 use BookBok\BookInfoScraper\Information\BookInterface;
@@ -29,21 +30,21 @@ class Scraper implements ScraperInterface
 {
     /**
      * @var string[]
-     * @phpstan-var array<string,string>
+     * @phpstan-var array<ONIX::CONTRIBUTOR_ROLE_*, string>
      */
-    private const AUTHOR_ROLE_MAP = [
-        "A01" => "著",
-        "A03" => "脚本",
-        "A06" => "作曲",
-        "B01" => "編集",
-        "B20" => "監修",
-        "B06" => "翻訳",
-        "A12" => "イラスト",
-        "A38" => "原著",
-        "A10" => "企画・原案",
-        "A08" => "写真",
-        "A21" => "解説",
-        "E07" => "朗読",
+    private const CONTRIBUTOR_ROLE_MAP = [
+        ONIX::CONTRIBUTOR_ROLE_AUTHOR => "著",
+        ONIX::CONTRIBUTOR_ROLE_SCREENPLAY_BY => "脚本",
+        ONIX::CONTRIBUTOR_ROLE_COMPOSER => "作曲",
+        ONIX::CONTRIBUTOR_ROLE_EDITED_BY => "編集",
+        ONIX::CONTRIBUTOR_ROLE_CONSULTANT_EDITOR => "監修",
+        ONIX::CONTRIBUTOR_ROLE_TRANSLATED_BY => "翻訳",
+        ONIX::CONTRIBUTOR_ROLE_ILLUSTRATED_BY => "イラスト",
+        ONIX::CONTRIBUTOR_ROLE_ORIGINAL_AUTHOR => "原著",
+        ONIX::CONTRIBUTOR_ROLE_IDEA_BY => "企画",
+        ONIX::CONTRIBUTOR_ROLE_PHOTOGRAPHER => "写真",
+        ONIX::CONTRIBUTOR_ROLE_COMMENTARIES_BY => "解説",
+        ONIX::CONTRIBUTOR_ROLE_READ_BY => "朗読",
     ];
 
     /** @var string */
@@ -60,15 +61,15 @@ class Scraper implements ScraperInterface
     private $requestFactory;
 
     /**
-     * @var string[]
-     * @phpstan-var array<string,string>
-     */
-    private $authorRoleMap;
-
-    /**
      * @var UriInterface|string
      */
-    private $apiUrl;
+    private $apiUrl = self::API_URI;
+
+    /**
+     * @var string[]
+     * @phpstan-var array<ONIX::CONTRIBUTOR_ROLE_*, string>
+     */
+    private $contributorRoleTextMap = self::CONTRIBUTOR_ROLE_MAP;
 
     /**
      * @var callable|null
@@ -87,58 +88,10 @@ class Scraper implements ScraperInterface
      * @param callable|null $allowableChecker
      * @phpstan-param (callable(BookInterface):bool)|null $allowableChecker
      */
-    public function __construct(
-        ClientInterface $httpClient,
-        RequestFactoryInterface $requestFactory,
-        array $authorRoleMap = self::AUTHOR_ROLE_MAP,
-        $apiUrl = self::API_URI,
-        ?callable $allowableChecker = null
-    ) {
-        if (count($authorRoleMap) === 0) {
-            throw new \InvalidArgumentException();
-        }
-
-        foreach ($authorRoleMap as $code => $role) {
-            if (!is_string($code)) {
-                throw new \InvalidArgumentException();
-            }
-
-            if (!is_string($role) || $role === "") {
-                throw new \InvalidArgumentException();
-            }
-        }
-
-        if (!is_string($apiUrl) && !(is_object($apiUrl) && $apiUrl instanceof UriInterface)) {
-            throw new \InvalidArgumentException();
-        }
-
-        if (
-            is_string($apiUrl)
-            && (
-                strpos($apiUrl, "?isbn=") !== false
-                || strpos($apiUrl, "&isbn=") !== false
-            )
-        ) {
-            throw new \InvalidArgumentException();
-        }
-
+    public function __construct(ClientInterface $httpClient, RequestFactoryInterface $requestFactory)
+    {
         $this->httpClient = $httpClient;
         $this->requestFactory = $requestFactory;
-        $this->authorRoleMap = $authorRoleMap;
-        $this->apiUrl = $apiUrl;
-        $this->allowableChecker = $allowableChecker;
-    }
-
-    /**
-     * Returns the author role.
-     *
-     * @param string $code The author role code.
-     *
-     * @return string|null
-     */
-    protected function getAuthorRoleText(string $code): ?string
-    {
-        return $this->authorRoleList[$code] ?? null;
     }
 
     /**
@@ -148,7 +101,7 @@ class Scraper implements ScraperInterface
      *
      * @return UriInterface|string
      */
-    protected function getApiUrl(string $id)
+    public function getApiUrl(string $id)
     {
         if (is_string($this->apiUrl)) {
             [$apiUrl] = explode("#", $this->apiUrl);
@@ -166,11 +119,91 @@ class Scraper implements ScraperInterface
     }
 
     /**
+     * Set the api url.
+     *
+     * @param string|UriInterface $apiUrl The api url.
+     *
+     * @return $this
+     */
+    public function setApiUrl($apiUrl): Scraper
+    {
+        if (!is_string($apiUrl) && !(is_object($apiUrl) && $apiUrl instanceof UriInterface)) {
+            throw new \InvalidArgumentException("");
+        }
+
+        if (
+            is_string($apiUrl)
+            && (
+                strpos($apiUrl, "?isbn=") !== false
+                || strpos($apiUrl, "&isbn=") !== false
+            )
+        ) {
+            throw new \InvalidArgumentException("");
+        }
+
+        $this->apiUrl = $apiUrl;
+
+        return $this;
+    }
+
+    /**
+     * Returns the contributor role text.
+     *
+     * @param string $role The contributor role.
+     * @phpstan-param ONIX::CONTRIBUTOR_ROLE_* $role The contributor role.
+     *
+     * @return string
+     */
+    public function getContributorRoleText(string $role): string
+    {
+        if (!array_key_exists($role, $this->contributorRoleTextMap)) {
+            throw new \InvalidArgumentException("");
+        }
+
+        return $this->contributorRoleTextMap[$role];
+    }
+
+    /**
+     * Set the contributor role text.
+     *
+     * @param string $role The contributor role.
+     * @phpstan-param ONIX::CONTRIBUTOR_ROLE_* $role The contributor role.
+     * @param string $text The contributor role text.
+     *
+     * @return $this
+     */
+    public function setContributorRoleText(string $role, string $text): Scraper
+    {
+        if (!array_key_exists($role, $this->contributorRoleTextMap)) {
+            throw new \InvalidArgumentException("");
+        }
+
+        $this->contributorRoleTextMap[$role] = $text;
+
+        return $this;
+    }
+
+    /**
      * {@inheritDoc}
      */
     public function getAllowableChecker(): ?callable
     {
         return $this->allowableChecker;
+    }
+
+    /**
+     * Set the allowable check callback.
+     *
+     * @param callable|null $allowableChecker The allowable check callback.
+     * @phpstan-param (callable(BookInterface):bool)|null $allowableChecker The allowable check callback.
+     *
+     * @return $this
+     */
+    public function setAllowableChecker(?callable $allowableChecker): Scraper
+    {
+        $this->allowableChecker = $allowableChecker;
+
+        return $this;
     }
 
     /**
