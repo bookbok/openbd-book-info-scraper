@@ -14,19 +14,24 @@
 
 namespace BookBok\BookInfoScraper\OpenBD;
 
-use BookBok\BookInfoScraper\AbstractIsbnScraper;
+use BookBok\BookInfoScraper\ScraperInterface;
 use BookBok\BookInfoScraper\Exception\DataProviderException;
 use BookBok\BookInfoScraper\Information\BookInterface;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\UriInterface;
 
 /**
  *
  */
-class OpenBDScraper extends AbstractIsbnScraper
+class Scraper implements ScraperInterface
 {
-    private const AUTHOR_ROLE_LIST = [
+    /**
+     * @var string[]
+     * @phpstan-var array<string,string>
+     */
+    private const AUTHOR_ROLE_MAP = [
         "A01" => "著",
         "A03" => "脚本",
         "A06" => "作曲",
@@ -41,6 +46,7 @@ class OpenBDScraper extends AbstractIsbnScraper
         "E07" => "朗読",
     ];
 
+    /** @var string */
     private const API_URI = "https://api.openbd.jp/v1/get";
 
     /**
@@ -55,64 +61,124 @@ class OpenBDScraper extends AbstractIsbnScraper
 
     /**
      * @var string[]
+     * @phpstan-var array<string,string>
      */
-    private $authorRoleList = self::AUTHOR_ROLE_LIST;
+    private $authorRoleMap;
+
+    /**
+     * @var UriInterface|string
+     */
+    private $apiUrl;
+
+    /**
+     * @var callable|null
+     * @phpstan-var (callable(BookInterface):bool)|null
+     */
+    private $allowableChecker;
 
     /**
      * Constructor.
      *
-     * @param ClientInterface         $httpClient The http request client
-     * @param RequestFactoryInterface $requestFactory The request factory
+     * @param ClientInterface $httpClient
+     * @param RequestFactoryInterface $requestFactory
+     * @param string[] $authorRoleMap
+     * @phpstan-param array<string,string> $authorRoleMap
+     * @param UriInterface|string $apiUrl If string, ignore segment.
+     * @param callable|null $allowableChecker
+     * @phpstan-param (callable(BookInterface):bool)|null $allowableChecker
      */
     public function __construct(
         ClientInterface $httpClient,
-        RequestFactoryInterface $requestFactory
+        RequestFactoryInterface $requestFactory,
+        array $authorRoleMap = self::AUTHOR_ROLE_MAP,
+        $apiUrl = self::API_URI,
+        ?callable $allowableChecker = null
     ) {
+        if (count($authorRoleMap) === 0) {
+            throw new \InvalidArgumentException();
+        }
+
+        foreach ($authorRoleMap as $code => $role) {
+            if (!is_string($code)) {
+                throw new \InvalidArgumentException();
+            }
+
+            if (!is_string($role) || $role === "") {
+                throw new \InvalidArgumentException();
+            }
+        }
+
+        if (!is_string($apiUrl) && !(is_object($apiUrl) && $apiUrl instanceof UriInterface)) {
+            throw new \InvalidArgumentException();
+        }
+
+        if (
+            is_string($apiUrl)
+            && (
+                strpos($apiUrl, "?isbn=") !== false
+                || strpos($apiUrl, "&isbn=") !== false
+            )
+        ) {
+            throw new \InvalidArgumentException();
+        }
+
         $this->httpClient = $httpClient;
         $this->requestFactory = $requestFactory;
+        $this->authorRoleMap = $authorRoleMap;
+        $this->apiUrl = $apiUrl;
+        $this->allowableChecker = $allowableChecker;
     }
 
     /**
-     * 著者役割を返す。
+     * Returns the author role.
      *
-     * @param string $code 著者役割コード
+     * @param string $code The author role code.
      *
      * @return string|null
      */
-    public function getAuthorRoleText(string $code): ?string
+    protected function getAuthorRoleText(string $code): ?string
     {
         return $this->authorRoleList[$code] ?? null;
     }
 
     /**
-     * 著者役割を設定する。
+     * Returns the api url with isbn code.
      *
-     * @param string $code 著者役割コード
-     * @param string $text 著者役割
+     * @param string $id The book id.
      *
-     * @return $this
+     * @return UriInterface|string
      */
-    public function setAuthorRoleText(string $code, string $text): self
+    protected function getApiUrl(string $id)
     {
-        if ("" === $text) {
-            throw new \InvalidArgumentException();
+        if (is_string($this->apiUrl)) {
+            [$apiUrl] = explode("#", $this->apiUrl);
+            $isAlreadyHasQuery = strpos($apiUrl, "?") !== false;
+
+            // The ID is in ISBN format, there is no need to perform URL encoding.
+            return $apiUrl . ($isAlreadyHasQuery ? "&isbn={$id}" : "?isbn={$id}");
         }
 
-        $this->authorRoleList[$code] = $text;
-
-        return $this;
+        return $this->apiUrl->withQuery(
+            $this->apiUrl->getQuery() === ""
+                ? "isbn={$id}"
+                : "{$this->apiUrl->getQuery()}&isbn={$id}"
+        );
     }
 
     /**
-     * 著者役割をデフォルト値にリセットする。
-     *
-     * @return $this
+     * {@inheritDoc}
      */
-    public function resetAuthorRoleText(): self
+    public function getAllowableChecker(): ?callable
     {
-        $this->authorRoleList = self::AUTHOR_ROLE_LIST;
+        return $this->allowableChecker;
+    }
 
-        return $this;
+    /**
+     * {@inheritDoc}
+     */
+    public function support(string $id): bool
+    {
+        return preg_match("/\A97[89][0-9]{10}\z/", $id) === 1;
     }
 
     /**
@@ -122,7 +188,7 @@ class OpenBDScraper extends AbstractIsbnScraper
     {
         try {
             $response = $this->httpClient->sendRequest(
-                $this->requestFactory->createRequest("GET", $this->getApiUri($id))
+                $this->requestFactory->createRequest("GET", $this->getApiUrl($id))
             );
         } catch (ClientExceptionInterface $e) {
             throw new DataProviderException($e->getMessage(), $e->getCode(), $e);
@@ -132,53 +198,56 @@ class OpenBDScraper extends AbstractIsbnScraper
             return null;
         }
 
-        if (null === ($json = $this->normalizeJsonText($response->getBody()->getContents()))) {
+        $parsedBody = static::parseBody($response->getBody()->getContents());
+
+        if ($parsedBody === null) {
+            throw new \LogicException();
+        }
+
+        $book = $this->generateBook($parsedBody);
+
+        if ($book === null) {
+            throw new \LogicException();
+        }
+
+        return $book;
+    }
+
+    /**
+     * Returns the parsed response body.
+     *
+     * @see https://api.openbd.jp/v1/schema?pretty The response data schema.
+     *
+     * @param string $body The HTTP response body.
+     *
+     * @return array|null
+     */
+    protected static function parseBody(string $body): ?array
+    {
+        // MEMO: OpenBDは制御文字をエスケープせずに紛れ込ませてくる
+        $ctrlRemovedBody = preg_replace("/[[:cntrl:]]/", "", $body);
+        $parsedBody = json_decode($ctrlRemovedBody, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new DataProviderException(
+                json_last_error_msg(),
+                json_last_error(),
+                // TODO: Since JsonException can be used from php7.3, switch it when discarding the support for 7.2.
+                new \Exception('dummy exception')
+            );
+        }
+
+        if (!isset($parsedBody[0])) {
             return null;
         }
 
-        $data = json_decode($json, true);
-
-        if (JSON_ERROR_NONE !== json_last_error()) {
-            throw new DataProviderException(json_last_error_msg());
-        }
-
-        if (!isset($data[0])) {
-            return null;
-        }
-
-        return $this->generateBook($data[0]);
+        return $parsedBody;
     }
 
     /**
-     * OpenBDのエンドポイントURLを返す。
+     * Returns the generated book data.
      *
-     * @param string $isbn リクエストするISBN文字列。
-     *
-     * @return string
-     */
-    protected function getApiUri(string $isbn): string
-    {
-        return static::API_URI . "?isbn={$isbn}";
-    }
-
-    /**
-     * APIのレスポンスjsonを正規化する。
-     *
-     * OpenBDは異常なjsonデータを返すことがあるので、それを処理する。
-     *
-     * @param string $json レスポンスデータ
-     *
-     * @return string|null
-     */
-    protected function normalizeJsonText(string $json): ?string
-    {
-        return preg_replace("/[[:cntrl:]]/", "", $json);
-    }
-
-    /**
-     * 本情報を生成する。
-     *
-     * @param mixed[] $data パースされたレスポンスデータ
+     * @param array $data The openbd book data.
      *
      * @return BookInterface|null
      */
