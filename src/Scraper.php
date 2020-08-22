@@ -82,11 +82,6 @@ class Scraper implements ScraperInterface
      *
      * @param ClientInterface $httpClient
      * @param RequestFactoryInterface $requestFactory
-     * @param string[] $authorRoleMap
-     * @phpstan-param array<string,string> $authorRoleMap
-     * @param UriInterface|string $apiUrl If string, ignore segment.
-     * @param callable|null $allowableChecker
-     * @phpstan-param (callable(BookInterface):bool)|null $allowableChecker
      */
     public function __construct(ClientInterface $httpClient, RequestFactoryInterface $requestFactory)
     {
@@ -127,6 +122,7 @@ class Scraper implements ScraperInterface
      */
     public function setApiUrl($apiUrl): Scraper
     {
+        // @phpstan-ignore-next-line
         if (!is_string($apiUrl) && !(is_object($apiUrl) && $apiUrl instanceof UriInterface)) {
             throw new \InvalidArgumentException("");
         }
@@ -253,12 +249,20 @@ class Scraper implements ScraperInterface
      *
      * @param string $body The HTTP response body.
      *
+     * @todo 将来的にオブジェクトを返すようにする。
+     * @phpstan-ignore-next-line
      * @return array|null
      */
     protected static function parseBody(string $body): ?array
     {
         // MEMO: OpenBDは制御文字をエスケープせずに紛れ込ませてくる
+        /** @var string|null */
         $ctrlRemovedBody = preg_replace("/[[:cntrl:]]/", "", $body);
+
+        if (null === $ctrlRemovedBody) {
+            throw new \LogicException("Control character removal failed.");
+        }
+
         $parsedBody = json_decode($ctrlRemovedBody, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
@@ -280,6 +284,8 @@ class Scraper implements ScraperInterface
     /**
      * Returns the generated book data.
      *
+     * @todo 将来的にオブジェクトを受け取るようにする。
+     * @phpstan-ignore-next-line
      * @param array $data The openbd book data.
      *
      * @return BookInterface|null
@@ -364,18 +370,20 @@ class Scraper implements ScraperInterface
         $publishedDate = $firstPublicationDate ?? $publicationDate;
 
         if (null !== $publishedDate) {
+            /** @var string */
+            $formattedDate = substr_replace(
+                substr_replace($publishedDate, "-", 6, 0),
+                "-",
+                4,
+                0
+            );
             $book = $book
                 ->withPublishedCountryCode("JP")
                 // YYYYMMDD to YYYY-MM-DD
-                ->withPublishedData(substr_replace(
-                    substr_replace($publishedDate, "-", 6, 0),
-                    "-",
-                    4,
-                    0
-                ));
+                ->withPublishedData($formattedDate);
         }
 
-        /** @var string|null */
+        /** @var float|null */
         $price = null;
         /**
          * @var string|null
@@ -383,22 +391,22 @@ class Scraper implements ScraperInterface
          */
         $priceType = null;
 
-        foreach ($productSupply["SupplyDetail"]["Price"] ?? [] as $price) {
+        foreach ($productSupply["SupplyDetail"]["Price"] ?? [] as $priceData) {
             if (
-                ONIX::PRICE_TYPE_RECOMMENDED_RETAIL_PRICE !== $price["PriceType"]
-                && ONIX::PRICE_TYPE_FIXED_RETAIL_PRICE !== $price["PriceType"]
+                ONIX::PRICE_TYPE_RECOMMENDED_RETAIL_PRICE !== $priceData["PriceType"]
+                && ONIX::PRICE_TYPE_FIXED_RETAIL_PRICE !== $priceData["PriceType"]
             ) {
                 continue;
             }
 
-            if (ONIX::PRICE_TYPE_RECOMMENDED_RETAIL_PRICE === $price["PriceType"]) {
-                $price = (float)$price["PriceAmount"];
-                $priceType = $price["PriceType"];
+            if (ONIX::PRICE_TYPE_RECOMMENDED_RETAIL_PRICE === $priceData["PriceType"]) {
+                $price = (float)$priceData["PriceAmount"];
+                $priceType = $priceData["PriceType"];
                 continue;
             }
 
-            $price = (float)$price["PriceAmount"];
-            $priceType = $price["PriceType"];
+            $price = (float)$priceData["PriceAmount"];
+            $priceType = $priceData["PriceType"];
         }
 
         if (null !== $price && null !== $priceType) {
