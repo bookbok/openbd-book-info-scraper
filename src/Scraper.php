@@ -96,7 +96,7 @@ class Scraper implements ScraperInterface
      *
      * @return UriInterface|string
      */
-    public function getApiUrl(string $id)
+    protected function getApiUrl(string $id)
     {
         if (is_string($this->apiUrl)) {
             [$apiUrl] = explode("#", $this->apiUrl);
@@ -150,7 +150,7 @@ class Scraper implements ScraperInterface
      *
      * @return string
      */
-    public function getContributorRoleText(string $role): string
+    protected function getContributorRoleText(string $role): string
     {
         if (!array_key_exists($role, $this->contributorRoleTextMap)) {
             throw new \InvalidArgumentException("");
