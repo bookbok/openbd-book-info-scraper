@@ -286,92 +286,123 @@ class Scraper implements ScraperInterface
      */
     protected function generateBook(array $data): ?BookInterface
     {
-        if ("00" !== $data["onix"]["DescriptiveDetail"]["ProductComposition"] ?? null) {
+        $descriptiveDetail = $data["onix"]["DescriptiveDetail"];
+        $collateralDetail = $data["onix"]["CollateralDetail"];
+        $publishingDetail = $data["onix"]["PublishingDetail"];
+        $productSupply = $data["onix"]["ProductSupply"];
+
+        if (ONIX::PRODUCT_COMPOSITION_CODE_SINGLE_ITEM !== $descriptiveDetail["ProductComposition"]) {
             return null;
         }
 
-        $book = new OpenBDBook($data);
+        $titleElement = $descriptiveDetail["TitleDetail"]["TitleElement"];
 
-        $book->setSubTitle($book->get("DescriptiveDetail.TitleDetail.TitleElement.Subtitle.content"));
+        $book = (new OpenBDBook())
+            ->withId($data["onix"]["RecordReference"])
+            ->withTitle($titleElement["TitleText"]["content"])
+            ->withSubTitle($titleElement["Subtitle"]["content"] ?? null);
 
-        // Description
-        foreach ($book->get("CollateralDetail.TextContent") ?? [] as $description) {
-            if ("03" === $description["TextType"]) {
-                $book->setDescription($description["Text"]);
+        foreach ($collateralDetail["TextContent"] as $description) {
+            if (ONIX::COLLATERAL_TEXT_TYPE_DESCRIPTION === $description["TextType"]) {
+                $book = $book->withDescription($description["Text"]);
                 break;
             }
         }
 
-        // Cover Image Uri
-        foreach ($book->get("CollateralDetail.SupportingResource") ?? [] as $resource) {
-            if ("01" === $resource["ResourceContentType"]) {
+        foreach ($collateralDetail["SupportingResource"] as $resource) {
+            if (ONIX::COLLATERAL_RESOURCE_TYPE_FRONT_COVER === $resource["ResourceContentType"]) {
                 foreach ($resource["ResourceVersion"] ?? [] as $version) {
-                    $book->setCoverUri($version["ResourceLink"]);
+                    $book = $book->withCoverUri($version["ResourceLink"]);
                     break 2;
                 }
             }
         }
 
-        // Page Count
-        foreach ($book->get("DescriptiveDetail.Extent") ?? [] as $extent) {
-            if ("11" === $extent["ExtentType"]) {
-                $book->setPageCount((int)$extent["ExtentValue"]);
+        foreach ($descriptiveDetail["Extent"] ?? [] as $extent) {
+            if (ONIX::EXTENT_TYPE_CONTENT_PAGE_COUNT === $extent["ExtentType"]) {
+                $book = $book->withPageCount((int)$extent["ExtentValue"]);
                 break;
             }
         }
 
-        // Author
         $authors = [];
-        foreach ($book->get("DescriptiveDetail.Contributor") ?? [] as $author) {
-            $authors[]  = new OpenBDAuthor(
-                $author["PersonName"]["content"],
-                array_filter(
-                    array_map([$this, "getAuthorRoleText"], $author["ContributorRole"]),
-                    "is_string"
-                )
-            );
+        foreach ($descriptiveDetail["Contributor"] ?? [] as $author) {
+            $authors[] = (new OpenBDAuthor())
+                ->withName($author["PersonName"]["content"])
+                ->withRoles(
+                    array_map([$this, "getContributorRoleText"], $author["ContributorRole"])
+                );
         }
 
-        $book->setAuthors($authors);
+        if (count($authors) > 0) {
+            $book = $book->withAuthors($authors);
+        }
 
-        // Publisher
-        $book->setPublisher($book->get("PublishingDetail.Imprint.ImprintName"));
+        $book = $book->withPublisher($publishingDetail["Imprint"]["ImprintName"]);
 
-        // Published Date
-        $publishedAt = null;
+        /** @var string|null */
+        $publicationDate = null;
+        /** @var string|null */
+        $firstPublicationDate = null;
 
-        foreach ($book->get("PublishingDetail.PublishingDate") ?? [] as $publishedDate) {
+        foreach ($publishingDetail["PublishingDate"] ?? [] as $publishedDate) {
             if (
-                "" === $publishedDate["Date"]
-                || !in_array($publishedDate["PublishingDateRole"], ["01", "11"])
-                || 8 !== strlen($publishedDate["Date"])
+                ONIX::PUBLISHING_DATE_ROLE_FIRST_PUBLICATION_DATE === $publishedDate["PublishingDateRole"]
+                && 8 === strlen($publishedDate["Date"])
+            ) {
+                $firstPublicationDate = $publishedDate["Date"];
+            }
+
+            if (
+                ONIX::PUBLISHING_DATE_ROLE_PUBLICATION_DATE === $publishedDate["PublishingDateRole"]
+                && 8 === strlen($publishedDate["Date"])
+            ) {
+                $publicationDate = $publishedDate["Date"];
+            }
+        }
+
+        $publishedDate = $firstPublicationDate ?? $publicationDate;
+
+        if (null !== $publishedDate) {
+            $book = $book
+                ->withPublishedCountryCode("JP")
+                // YYYYMMDD to YYYY-MM-DD
+                ->withPublishedData(substr_replace(
+                    substr_replace($publishedDate, "-", 6, 0),
+                    "-",
+                    4,
+                    0
+                ));
+        }
+
+        /** @var string|null */
+        $price = null;
+        /**
+         * @var string|null
+         * @phpstan-var ONIX::PRICE_TYPE_*|null
+         */
+        $priceType = null;
+
+        foreach ($productSupply["SupplyDetail"]["Price"] ?? [] as $price) {
+            if (
+                ONIX::PRICE_TYPE_RECOMMENDED_RETAIL_PRICE !== $price["PriceType"]
+                && ONIX::PRICE_TYPE_FIXED_RETAIL_PRICE !== $price["PriceType"]
             ) {
                 continue;
             }
 
-            $publishedAt = $publishedDate["Date"];
-
-            if ("11" === $publishedDate["PublishingDateRole"]) {
-                break;
-            }
-        }
-
-        if (null !== $publishedAt) {
-            try {
-                $book->setPublishedAt(new \DateTime($publishedAt));
-            } catch (\Exception $e) {
-                throw new \LogicException($e->getMessage(), $e->getCode(), $e);
-            }
-        }
-
-        // Price
-        foreach ($book->get("ProductSupply.SupplyDetail.Price") ?? [] as $price) {
-            if (!in_array($price["PriceType"], ["01", "03"])) {
+            if (ONIX::PRICE_TYPE_RECOMMENDED_RETAIL_PRICE === $price["PriceType"]) {
+                $price = (float)$price["PriceAmount"];
+                $priceType = $price["PriceType"];
                 continue;
             }
 
-            $book->setPrice((int)$price["PriceAmount"]);
-            $book->setPriceCode($price["CurrencyCode"]);
+            $price = (float)$price["PriceAmount"];
+            $priceType = $price["PriceType"];
+        }
+
+        if (null !== $price && null !== $priceType) {
+            $book = $book->withPrice($price, "JPY");
         }
 
         return $book;
